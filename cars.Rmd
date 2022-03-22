@@ -1,0 +1,204 @@
+---
+title: "Final project (STAT S460F) Car Acceleration"
+author: "Zheng Zequan 12307824"
+date: "12/15/2020"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Read files
+```{r}
+Mydata = data.frame(read.csv("/Users/zhengzequan/Desktop/cars.csv"))
+```
+
+# List of packages to install
+```{r pack-install, eval=FALSE, include=FALSE}
+install.packages("ISLR")
+install.packages("epiDisplay")
+install.packages("dplyr")
+install.packages("tidyr")
+install.packages("ggplot2")
+install.packages("leaps")
+install.packages("glmnet")
+install.packages("PerformanceAnalytics")
+install.packages("pls")
+install.packages("sqldf")
+install.packages("ROCR")
+```
+
+# Package Loading
+```{r pack-load, include=TRUE}
+library(ISLR) 
+library(epiDisplay) 
+library(dplyr) 
+library(tidyr)  
+library(ggplot2)
+library(leaps)
+library(glmnet)
+library(PerformanceAnalytics)
+library(pls)
+library(sqldf)
+library(ROCR)
+```
+
+# Missing data
+## Hence we see that ‘Horsepower’ is missing for 2 values. The ‘na.omit()’ function removes all of the rows that have missing values in any variable.
+```{r}
+sum(is.na(Mydata$Horsepower))
+Mydata=na.omit(Mydata) 
+dim(Mydata)
+sum(is.na(Mydata))
+```
+
+# Splitting the data into training and testing data in 50:50 randomly
+```{r}
+Mydata=na.omit(Mydata)
+newdata = Mydata[,c(2,3,4,5,6,7)]
+train_sub = sample(nrow(newdata),5/10*nrow(newdata))
+training_data = newdata[train_sub,]
+testing_data = newdata[-train_sub,]
+```
+
+# Exploratory and Descriptive Analysis of Data
+```{r}
+summary(newdata)
+
+summary(newdata$Acceleration)
+boxplot(newdata$Acceleration)
+hist(newdata$Acceleration, main = "Dependent Variable of Acceleration")
+
+summary(newdata$MPG)
+hist(newdata$MPG, main = "Independent Variable of MPG")
+
+summary(newdata$Cylinders)
+hist(newdata$Cylinders, main = "Independent Variable of Cylinders")
+
+summary(newdata$Displacement)
+hist(newdata$Displacement, main = "Independent Variable of Displacement")
+
+summary(newdata$Horsepower)
+hist(newdata$Horsepower, main = "Independent Variable of Horsepower")
+
+summary(newdata$Weight)
+hist(newdata$Weight, main = "Independent Variable of Weight")
+```
+
+# Correlation plot
+```{r correlation plot}
+Mydata=na.omit(Mydata)
+Mydata_corr <- Mydata[, c(2,3,4,5,6,7)]
+chart.Correlation(Mydata_corr, histogram=TRUE, pch=7)
+
+# Compute correlation matrix
+res <- cor(Mydata_corr)
+round(res, 2)
+```
+### Interpretation: All the variables are asymmetric except the “Acceleration”. Only one positive correlation coefficient which is “MPG”, and it is highest correlation coefficient, but it is a weak positive relationship. Then, “Horsepower” is the lowest correlation coefficient.
+
+# Q-Q Plot
+## Interpretation: As all the points fall approximately along this reference line, we can assume normality.
+```{r}
+qqnorm(newdata$Acceleration, pch = 1, frame = FALSE)
+qqline(newdata$Acceleration, col = "steelblue", lwd = 2)
+```
+
+
+# Multiple linear Regression Model
+```{r}
+x = lm(formula = Acceleration ~., data = training_data)
+summary(x)
+sm = summary(x)
+mean(sm$residuals^2)
+```
+### Interpretation: A multiple linear regression model is derived between “Acceleration”, “MPG”, “Cylinders”, “Displacement”, “Horsepower” and “Weight”. The following regression model is obtained
+### Y = 18.9926053 – 0.0242964(MPG) – 0.2482693(Cylinders) – 0.0058041(Displacement) – 0.0982502(Horsepower) + 0.0033316(Weight)
+### R-squared and Adjusted R-squared is equals to 0.6724 and 0.6638, respectively. Which means that the explanatory variables explained around 67% variation of the dependent variable. And the mean square error is 2.747682. 
+
+# Ridge Regression
+```{r}
+# provide the values of coefficients
+x = model.matrix(Acceleration~., training_data)[,-1] # trim off the first column
+                                          # leaving only the predictors
+y = training_data %>%
+  select(Acceleration) %>%
+  unlist() %>%
+  as.numeric()
+
+grid = 10^seq(10, -2, length = 100)
+ridge_mod = glmnet(x, y, alpha = 0, lambda = grid)
+dim(coef(ridge_mod))
+plot(ridge_mod) # Draw plot of coefficients
+
+# testing mean square error
+set.seed(1)
+
+train = training_data %>%
+  sample_frac(0.5)
+
+test = training_data %>%
+  setdiff(train)
+
+x_train = model.matrix(Acceleration~., train)[,-1]
+x_test = model.matrix(Acceleration~., test)[,-1]
+
+y_train = train %>%
+  select(Acceleration) %>%
+  unlist() %>%
+  as.numeric()
+
+y_test = test %>%
+  select(Acceleration) %>%
+  unlist() %>%
+  as.numeric()
+
+set.seed(1)
+cv.out = cv.glmnet(x_train, y_train, alpha = 0) # Fit ridge regression model on training data
+bestlam = cv.out$lambda.min # Select lamda that minimizes training MSE
+bestlam
+
+plot(cv.out)
+
+ridge_pred = predict(ridge_mod, s = bestlam, newx = x_test) # Use best lambda to predict test data
+mean((ridge_pred - y_test)^2) # Calculate test MSE
+
+out = glmnet(x, y, alpha = 0) # Fit ridge regression model on full datase
+predict(out, type = "coefficients", s = bestlam)[1:6,] 
+# Display coefficients using lambda chosen by C
+```
+### Interpretation: By using the cross validation, it is revealed that best lambda choice is 0.206244.
+### Hence the best ridge regression model is,
+### Y = 19.765533121 – 0.021198447(MPG) – 0.190945748(Cylinders) – 0.004504115(Displacement) – 0.071415987(Horsepower) + 0.001925634(Weight)
+### The mean square error is 2.942557.
+
+# Lasso Regression 
+```{r}
+lasso_mod = glmnet(x_train,
+                    y_train,
+                    alpha = 1,
+                    lambda = grid) # Fit lasso model on training data
+plot(lasso_mod) # Draw plot of coefficients
+
+set.seed(1)
+cv.out = cv.glmnet(x_train, y_train, alpha = 1) # Fit lasso model on training data 
+plot(cv.out) # Draw plot of training MSE as a function of lambda
+
+bestlam = cv.out$lambda.min # Select lamda that minimizes training MSE
+bestlam
+lasso_pred = predict(lasso_mod, s = bestlam, newx = x_test) # Use best lambda to predict test data
+mean((lasso_pred - y_test)^2) # Calculate test MSE
+
+out = glmnet(x, y, alpha = 1, lambda = grid) # Fit lasso model on full dataset
+lasso_coef = predict(out, type = "coefficients", s = bestlam)[1:6,] 
+# Display coefficients using lambda chosen by CV
+lasso_coef
+```
+### Interpretation: By using the cross validation, it is revealed that best lambda choice is 0.02856245.
+### Hence the best Lasso regression model is,
+### Y = 19.173870934 – 0.015460382 (MPG) – 0.232215985(Cylinders) – 0.002591259 (Displacement) – 0.096007684(Horsepower) + 0.002885850(Weight)
+### The mean square error is 2.845647.
+
